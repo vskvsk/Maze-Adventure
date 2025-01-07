@@ -26,7 +26,8 @@ export class MazeGenerator {
         isExit: false,
         isEntry: false,
         hasItem: false,
-        isTrap: false
+        isTrap: false,
+        isMazeTransformer: false
       }))
     )
   }
@@ -153,25 +154,37 @@ export class MazeGenerator {
     return { x, y }
   }
 
-  addItemsAndTraps() {
-    // 添加道具
-    const itemCount = Math.floor((this.width * this.height) / 10)
-    for (let i = 0; i < itemCount; i++) {
-      const x = Math.floor(Math.random() * this.width)
-      const y = Math.floor(Math.random() * this.height)
-      if (!this.grid[y][x].isExit && !this.grid[y][x].isEntry) {
-        this.grid[y][x].hasItem = true
+    addItemsAndTraps() {
+      // 添加道具
+      const itemCount = Math.floor((this.width * this.height) / 10)
+      for (let i = 0; i < itemCount; i++) {
+        const x = Math.floor(Math.random() * this.width)
+        const y = Math.floor(Math.random() * this.height)
+        if (!this.grid[y][x].isExit && !this.grid[y][x].isEntry) {
+          this.grid[y][x].hasItem = true
+        }
       }
-    }
 
-    // 添加陷阱
-    const trapCount = Math.floor((this.width * this.height) / 20)
-    for (let i = 0; i < trapCount; i++) {
-      const x = Math.floor(Math.random() * this.width)
-      const y = Math.floor(Math.random() * this.height)
-      if (!this.grid[y][x].isExit && !this.grid[y][x].isEntry && !this.grid[y][x].hasItem) {
-        this.grid[y][x].isTrap = true
+      // 添加陷阱
+      const trapCount = Math.floor((this.width * this.height) / 20)
+      for (let i = 0; i < trapCount; i++) {
+        const x = Math.floor(Math.random() * this.width)
+        const y = Math.floor(Math.random() * this.height)
+        if (!this.grid[y][x].isExit && !this.grid[y][x].isEntry && !this.grid[y][x].hasItem) {
+          this.grid[y][x].isTrap = true
+        }
       }
-    }
+
+      // 添加一个机关
+      let transformerAdded = false
+      while (!transformerAdded) {
+        const x = Math.floor(Math.random() * this.width)
+        const y = Math.floor(Math.random() * this.height)
+        if (!this.grid[y][x].isExit && !this.grid[y][x].isEntry && 
+            !this.grid[y][x].hasItem && !this.grid[y][x].isTrap) {
+          this.grid[y][x].isMazeTransformer = true
+          transformerAdded = true
+        }
+      }
   }
 }

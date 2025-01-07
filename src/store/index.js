@@ -58,6 +58,60 @@ export default new Vuex.Store({
     SET_MAZE(state, maze) {
       state.maze = maze
     },
+    MODIFY_MAZE(state) {
+      // 确保迷宫保持可通性
+      const maze = JSON.parse(JSON.stringify(state.maze))
+      const size = maze.length
+      
+      // 获取玩家当前位置
+      const { x: playerX, y: playerY } = state.playerPosition
+      
+      // 随机修改部分墙壁
+      const modifications = Math.min(size * 2, 10) // 限制每次最多修改10处
+      for (let i = 0; i < modifications; i++) {
+        const x = Math.floor(Math.random() * size)
+        const y = Math.floor(Math.random() * size)
+        
+        // 确保不修改出口、玩家位置和附近区域
+        if (!maze[y][x].isExit && 
+            Math.abs(x - playerX) > 2 && 
+            Math.abs(y - playerY) > 2) {
+            
+          // 随机翻转一个方向的墙壁
+          const direction = ['top', 'right', 'bottom', 'left'][Math.floor(Math.random() * 4)]
+          maze[y][x][direction] = !maze[y][x][direction]
+          
+          // 同步相邻单元格的墙壁
+          if (direction === 'top' && y > 0) {
+            maze[y-1][x].bottom = maze[y][x].top
+          }
+          if (direction === 'right' && x < size - 1) {
+            maze[y][x+1].left = maze[y][x].right
+          }
+          if (direction === 'bottom' && y < size - 1) {
+            maze[y+1][x].top = maze[y][x].bottom
+          }
+          if (direction === 'left' && x > 0) {
+            maze[y][x-1].right = maze[y][x].left
+          }
+          
+          // 添加动画效果标记
+          maze[y][x].transforming = true
+          setTimeout(() => {
+            maze[y][x].transforming = false
+          }, 1000)
+        }
+      }
+      
+      // 更新迷宫状态
+      state.maze = maze
+      
+      // 播放变形音效
+      if (state.settings.soundEnabled) {
+        const audio = new Audio('/sounds/trap.mp3')
+        audio.play()
+      }
+    },
     SET_PLAYER_POSITION(state, position) {
       state.playerPosition = position
     },
@@ -330,6 +384,20 @@ export default new Vuex.Store({
         level
       }
       commit('ADD_SCORE', newScore)
+    },
+    startMazeModification({ commit, state }) {
+      if (state.mazeModificationInterval) {
+        clearInterval(state.mazeModificationInterval)
+      }
+      state.mazeModificationInterval = setInterval(() => {
+        commit('MODIFY_MAZE')
+      }, 10000) // 每10秒修改一次
+    },
+    stopMazeModification({ state }) {
+      if (state.mazeModificationInterval) {
+        clearInterval(state.mazeModificationInterval)
+        state.mazeModificationInterval = null
+      }
     }
   }
 })

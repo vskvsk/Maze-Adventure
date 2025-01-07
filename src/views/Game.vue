@@ -1,65 +1,38 @@
 <template>
   <div class="game-container">
-    <!-- 游戏主区域 -->
     <div class="maze-area">
-      <canvas ref="mazeCanvas" class="maze-canvas"></canvas>
+      <canvas ref="mazeCanvas"></canvas>
+    </div>
+    
+    <div class="mini-map">
+      <canvas ref="miniMapCanvas"></canvas>
     </div>
 
-    <!-- 游戏信息面板 -->
-    <div class="game-panel">
-      <div class="stats">
-        <div class="timer">
-          ⏳ 剩余时间: {{ timeLeft | formatTime }}
-        </div>
-        <div class="items">
-          ⭐ 收集道具: {{ collectedItems.length }}
-        </div>
-        <div class="level">
-          🎚️ 当前关卡: {{ currentLevel }}
-        </div>
-        <div class="effects" v-if="activeEffects.length > 0">
-          <div 
-            v-for="(effect, index) in activeEffects" 
-            :key="index"
-            class="effect"
-            :title="effect.description"
-          >
-            {{ effect.icon }}
-          </div>
-        </div>
-      </div>
-      <div class="mini-map" :class="{ 'full-map': showFullMap }">
-        <canvas ref="miniMapCanvas" class="mini-map-canvas"></canvas>
-      </div>
-      <div class="controls">
-        <button @click="pauseGame">暂停</button>
+    <div class="controls">
+      <button @click="pauseGame">
+        {{ isPaused ? '继续' : '暂停' }}
+      </button>
+      <button @click="restartGame">重新开始</button>
+    </div>
+
+    <!-- 胜利弹窗 -->
+    <div v-if="showWinModal" class="modal">
+      <div class="modal-content">
+        <h2>恭喜通关！</h2>
+        <p>用时：{{ 300 - timeLeft }}秒</p>
+        <p>收集道具：{{ collectedItems.length }}个</p>
+        <button @click="nextLevel">下一关</button>
+        <button @click="restartGame">重新开始</button>
+        <button @click="shareResult">分享成绩</button>
       </div>
     </div>
 
-    <!-- 游戏结束弹窗 -->
-    <div class="modal-overlay" v-if="showWinModal || showLoseModal">
-      <div class="modal">
-        <h2 v-if="showWinModal">🎉 恭喜通关！</h2>
-        <h2 v-if="showLoseModal">😢 时间耗尽！</h2>
-        <p>收集道具: {{ collectedItems.length }}</p>
-        <p>用时: {{ 300 - timeLeft }} 秒</p>
-        <p>当前关卡: {{ currentLevel }}</p>
-        <div class="achievements" v-if="unlockedAchievements.length > 0">
-          <h3>解锁成就</h3>
-          <div 
-            v-for="achievement in unlockedAchievements" 
-            :key="achievement.id"
-            class="achievement"
-            :title="achievement.description"
-          >
-            {{ achievement.icon }} {{ achievement.title }}
-          </div>
-        </div>
-        <div class="modal-buttons">
-          <button v-if="showWinModal" @click="nextLevel">下一关</button>
-          <button @click="restartGame">重新开始</button>
-          <button @click="shareResult">分享结果</button>
-        </div>
+    <!-- 失败弹窗 -->
+    <div v-if="showLoseModal" class="modal">
+      <div class="modal-content">
+        <h2>游戏结束</h2>
+        <p>很遗憾，时间到了</p>
+        <button @click="restartGame">重新开始</button>
       </div>
     </div>
   </div>
@@ -84,11 +57,25 @@ export default {
       miniMapCellSize: 8,
       animationFrame: null,
       lastRenderTime: 0,
-      renderInterval: 1000 / 60 // 60 FPS
+      renderInterval: 1000 / 60, // 60 FPS
+      transformationActive: false,
+      transformationInterval: null
     }
   },
   computed: {
-    ...mapState(['maze', 'playerPosition', 'isPaused', 'gameStatus', 'collectedItems', 'currentLevel', 'activeEffects', 'showFullMap', 'settings', 'timeLeft', 'achievements']),
+    ...mapState({
+      maze: state => state.maze,
+      playerPosition: state => state.playerPosition,
+      isPaused: state => state.isPaused,
+      gameStatus: state => state.gameStatus,
+      collectedItems: state => state.collectedItems,
+      currentLevel: state => state.currentLevel,
+      activeEffects: state => state.activeEffects,
+      showFullMap: state => state.showFullMap,
+      settings: state => state.settings,
+      timeLeft: state => state.timeLeft,
+      achievements: state => state.achievements
+    }),
     unlockedAchievements() {
       return this.achievements.filter(a => a.unlocked)
     },
@@ -123,10 +110,21 @@ export default {
       if (this.music) {
         this.music.volume = newVal
       }
+    },
+    maze() {
+      this.drawMaze() // 监听maze变化并重绘
     }
   },
   methods: {
-    ...mapActions(['generateMaze', 'movePlayer', 'startTimer', 'stopTimer']),
+    ...mapActions(['generateMaze', 'movePlayer', 'startTimer', 'stopTimer', 'startMazeModification']),
+    restartGame() {
+      this.showWinModal = false
+      this.showLoseModal = false
+      this.$store.commit('RESET_GAME')
+      this.$store.state.timeLeft = this.$store.state.settings.initialTime
+      this.generateMaze()
+      this.startTimer()
+    },
     
     initCanvas() {
       // 主地图canvas
@@ -264,6 +262,20 @@ export default {
             this.ctx.fill()
           }
           
+          // 绘制机关
+          if (cell.isMazeTransformer) {
+            this.ctx.fillStyle = '#800080' // 紫色
+            this.ctx.beginPath()
+            this.ctx.arc(
+              xPos + this.cellSize / 2,
+              yPos + this.cellSize / 2,
+              this.cellSize * 0.25,
+              0,
+              Math.PI * 2
+            )
+            this.ctx.fill()
+          }
+
           // 绘制陷阱
           if (cell.isTrap) {
             this.ctx.fillStyle = '#f44336'
@@ -347,6 +359,20 @@ export default {
             this.miniMapCtx.fill()
           }
           
+          // 绘制机关
+          if (cell.isMazeTransformer) {
+            this.miniMapCtx.fillStyle = '#800080'
+            this.miniMapCtx.beginPath()
+            this.miniMapCtx.arc(
+              xPos + this.miniMapCellSize / 2,
+              yPos + this.miniMapCellSize / 2,
+              this.miniMapCellSize * 0.4,
+              0,
+              Math.PI * 2
+            )
+            this.miniMapCtx.fill()
+          }
+
           // 绘制陷阱
           if (cell.isTrap) {
             this.miniMapCtx.fillStyle = '#f44336'
@@ -422,6 +448,11 @@ export default {
               }
             }
             
+            // 检查是否触发机关
+            if (currentCell.isMazeTransformer) {
+              this.startMazeTransformation()
+            }
+            
             // 检查是否到达终点
             if (currentCell.isExit) {
               this.$store.commit('WIN_GAME')
@@ -436,6 +467,78 @@ export default {
             }
           }
       }
+    },
+
+    startMazeTransformation() {
+      if (this.transformationActive) return
+      
+      this.transformationActive = true
+      
+      // 播放变形音效
+      if (this.settings.soundEnabled) {
+        this.playSound('trap')
+      }
+      
+      // 首次立即变形
+      this.transformMaze()
+      
+      // 设置10秒间隔的变形
+      this.transformationInterval = setInterval(() => {
+        this.transformMaze()
+      }, 10000)
+    },
+
+    stopMazeTransformation() {
+      this.transformationActive = false
+      clearInterval(this.transformationInterval)
+    },
+
+    transformMaze() {
+      // 获取当前迷宫
+      const maze = this.$store.state.maze
+      
+      // 计算1/8区域的大小
+      const regionWidth = Math.ceil(maze[0].length / 4)
+      const regionHeight = Math.ceil(maze.length / 2)
+      
+      // 固定选择右下角1/8区域
+      const startX = maze[0].length - regionWidth
+      const startY = maze.length - regionHeight
+      
+      // 修改该区域内的所有墙壁
+      for (let y = startY; y < maze.length; y++) {
+        for (let x = startX; x < maze[0].length; x++) {
+          // 随机修改一个方向的墙壁
+          const directions = ['top', 'right', 'bottom', 'left']
+          const randomDir = directions[Math.floor(Math.random() * directions.length)]
+          
+          // 确保修改后迷宫仍然可解
+          const originalState = maze[y][x][randomDir]
+          maze[y][x][randomDir] = !originalState
+        }
+      }
+      
+      // 更新迷宫状态
+      this.$store.commit('UPDATE_MAZE', maze)
+      
+      // 重绘迷宫
+      this.drawMaze()
+      
+      // 播放整个区域的变形动画
+      this.playTransformationAnimation(startX, startY)
+    },
+
+    playTransformationAnimation(x, y) {
+      // 在变形区域添加视觉效果
+      const xPos = x * this.cellSize
+      const yPos = y * this.cellSize
+      
+      this.ctx.fillStyle = 'rgba(128, 0, 128, 0.3)'
+      this.ctx.fillRect(xPos, yPos, this.cellSize, this.cellSize)
+      
+      setTimeout(() => {
+        this.drawMaze() // 恢复原状
+      }, 500)
     },
 
     calculateNewPosition(direction) {
@@ -619,127 +722,41 @@ export default {
     window.removeEventListener('keydown', this.handleKeydown)
   }
 }
+
 </script>
 
 <style scoped>
 .game-container {
-  display: flex;
-  flex-direction: row;
+  position: relative;
+  width: 100%;
   height: 100vh;
-  padding: 0;
-  gap: 0;
-}
-
-.maze-area {
-  flex: 3;
-  display: flex;
-  justify-content: center;
-  align-items: center;
   background-color: #111;
 }
 
-.maze-grid {
-  display: grid;
-  background-color: #222;
-  padding: 8px;
-  border-radius: 8px;
-  box-shadow: 0 0 20px rgba(0,0,0,0.5);
-}
-
-.maze-cell {
-  background-color: #333;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 24px;
+.maze-area {
+  width: 80%;
+  height: 80%;
+  margin: 0 auto;
   position: relative;
-  transition: background-color 0.2s;
-  margin: 2px;
-  width: 50px;
-  height: 50px;
-}
-
-.maze-cell span {
-  position: absolute;
-  z-index: 1;
-  transform: translate(-50%, -50%);
-  top: 50%;
-  left: 50%;
-}
-
-.maze-cell.player {
-  background-color: #4caf50;
-}
-
-.maze-cell.exit {
-  background-color: #ff9800;
-}
-
-.maze-cell.item {
-  background-color: #ffeb3b;
-}
-
-.maze-cell.trap {
-  background-color: #f44336;
-}
-
-.game-panel {
-  width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  padding: 20px;
-  background-color: #1a1a1a;
-  border-left: 1px solid #333;
-}
-
-.stats {
-  background-color: #222;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.stats > div {
-  margin-bottom: 10px;
-  font-size: 16px;
 }
 
 .mini-map {
-  background-color: #222;
-  padding: 10px;
-  border-radius: 8px;
-}
-
-.mini-map-grid {
-  display: grid;
-  gap: 2px;
-}
-
-.mini-map-cell {
-  width: 10px;
-  height: 10px;
-  background-color: #333;
-}
-
-.mini-map-cell.player {
-  background-color: #4caf50;
-}
-
-.mini-map-cell.exit {
-  background-color: #ff9800;
-}
-
-.mini-map-cell.item {
-  background-color: #ffeb3b;
-}
-
-.mini-map-cell.trap {
-  background-color: #f44336;
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  width: 200px;
+  height: 200px;
+  border: 2px solid #00ff00;
+  background-color: rgba(0, 0, 0, 0.8);
 }
 
 .controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  justify-content: center;
+  gap: 10px;
 }
 
 button {
@@ -747,42 +764,36 @@ button {
   background-color: #4caf50;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
 }
 
-button:hover {
-  background-color: #45a049;
-}
-
-.modal-overlay {
+.modal {
   position: fixed;
   top: 0;
   left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.modal {
-  background-color: white;
+.modal-content {
+  background-color: #222;
   padding: 20px;
-  border-radius: 8px;
-  max-width: 400px;
-  width: 100%;
+  border-radius: 10px;
+  text-align: center;
 }
 
-.modal h2 {
-  margin-top: 0;
+.modal-content h2 {
+  color: #4caf50;
+  margin-bottom: 20px;
 }
 
-.modal-buttons {
-  display: flex;
-  gap: 10px;
-  margin-top: 20px;
+.modal-content p {
+  color: white;
+  margin: 10px 0;
 }
-
 </style>
